@@ -1,20 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, HelpingHand, Shield, X, RefreshCw } from 'lucide-react';
+import { AlertCircle, HelpingHand, Shield, MapPin } from 'lucide-react';
 
-// Colorblind-friendly palette (Wong)
 const STATUS_CONFIG = {
   needHelp: {
-    color: '#D55E00',  // Vibrant orange
+    color: '#D55E00',
     icon: '!',
     title: 'Needs Help'
   },
   offerHelp: {
-    color: '#009E73',  // Vibrant green
+    color: '#009E73',
     icon: 'H',
     title: 'Offering Help'
   },
   safe: {
-    color: '#0072B2',  // Strong blue
+    color: '#0072B2',
     icon: 'S',
     title: 'Safe Location'
   }
@@ -31,11 +30,65 @@ function App() {
   const [markers, setMarkers] = useState([]);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const scriptLoadedRef = useRef(false);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
+  const getCurrentLocation = () => {
+    setIsGettingLocation(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const location = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          };
+
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location }, (results, status) => {
+            setIsGettingLocation(false);
+            if (status === 'OK' && results[0]) {
+              const fullLocation = {
+                ...location,
+                address: results[0].formatted_address,
+                placeType: results[0].types?.[0] || 'location'
+              };
+              setSelectedLocation(fullLocation);
+              map.panTo(location);
+              map.setZoom(16);
+              
+              if (selectedAction) {
+                createMarker(fullLocation, selectedAction, map);
+              }
+            } else {
+              setError('Could not find your address. Please enter it manually.');
+            }
+          });
+        },
+        (error) => {
+          setIsGettingLocation(false);
+          setError('Could not get your location: ' + error.message);
+        }
+      );
+    } else {
+      setIsGettingLocation(false);
+      setError('Location services not available in your browser');
+    }
+  };
   useEffect(() => {
     if (scriptLoadedRef.current) return;
     scriptLoadedRef.current = true;
     setIsLoading(true);
+
+    const cleanup = () => {
+      if (map) {
+        
+      }
+      if (mapRef.current) {
+        mapRef.current.innerHTML = '';
+        setMap(null);
+      }
+    };
+
+    cleanup();
 
     const loadGoogleMaps = () => {
       return new Promise((resolve, reject) => {
@@ -68,8 +121,7 @@ function App() {
       if (!mapRef.current) return;
 
       const newMap = new window.google.maps.Map(mapRef.current, {
-        center: { lat: 34.28998351243129, lng: -118.5383687459385 },
-        zoom: 16,
+        zoom: 14,
         mapTypeControl: false,
         fullscreenControl: true,
         streetViewControl: false,
@@ -112,7 +164,8 @@ function App() {
           const location = {
             lat: place.geometry.location.lat(),
             lng: place.geometry.location.lng(),
-            address: place.formatted_address
+            address: place.formatted_address,
+            placeType: place.types?.[0] || 'location'
           };
           setSelectedLocation(location);
 
@@ -145,11 +198,11 @@ function App() {
     initializeApp();
 
     return () => {
+      cleanup();
       delete window.initializeMap;
       scriptLoadedRef.current = false;
     };
   }, [selectedAction]);
-
   const createMarker = (location, type, mapInstance) => {
     try {
       const config = STATUS_CONFIG[type];
@@ -157,7 +210,7 @@ function App() {
       const marker = new google.maps.Marker({
         position: location,
         map: mapInstance,
-        title: config.title,
+        title: `${config.title} - ${location.placeType}`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           fillColor: config.color,
@@ -190,6 +243,7 @@ function App() {
             </div>
             ${markerData.address ? 
               `<p style="margin: 0 0 8px 0; color: #666;">${markerData.address}</p>` : ''}
+            <p style="margin: 0 0 8px 0; color: #666;">Location Type: ${markerData.placeType}</p>
             <p style="margin: 0 0 12px 0; font-size: 14px; color: #666;">
               Last updated: ${timestamp}
             </p>
@@ -208,10 +262,7 @@ function App() {
                 justify-content: center;
                 gap: 4px;
               ">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
-                </svg>
-                Change Status
+                Update Status
               </button>
               <button id="removeMarker" style="
                 background-color: #f44336;
@@ -221,13 +272,8 @@ function App() {
                 border-radius: 4px;
                 cursor: pointer;
                 font-weight: 500;
-                display: flex;
-                align-items: center;
-                justify-content: center;
               ">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 6L6 18M6 6l12 12"/>
-                </svg>
+                Remove
               </button>
             </div>
           </div>
@@ -240,6 +286,7 @@ function App() {
         type,
         location,
         title: config.title,
+        placeType: location.placeType,
         address: location.address,
         timestamp: new Date().toLocaleString()
       };
@@ -255,11 +302,9 @@ function App() {
         infoWindow.open(mapInstance, marker);
         setSelectedMarker({ ...markerData, infoWindow });
 
-        // Add event listeners after InfoWindow is opened
         google.maps.event.addListener(infoWindow, 'domready', () => {
           document.getElementById('updateMarker')?.addEventListener('click', () => {
             infoWindow.close();
-            setSelectedMarker({ ...markerData, infoWindow });
             updateMarkerStatus(markerData.id);
           });
 
@@ -283,7 +328,6 @@ function App() {
       setError('Error placing marker. Please try again.');
     }
   };
-
   const updateMarkerStatus = (markerId) => {
     const markerToUpdate = markers.find(m => m.id === markerId);
     if (!markerToUpdate) {
@@ -296,7 +340,6 @@ function App() {
     const nextType = currentTypes[(currentIndex + 1) % currentTypes.length];
     const config = STATUS_CONFIG[nextType];
 
-    // Update marker icon and label
     markerToUpdate.marker.setIcon({
       path: google.maps.SymbolPath.CIRCLE,
       fillColor: config.color,
@@ -305,6 +348,7 @@ function App() {
       strokeWeight: 2,
       scale: 12
     });
+
     markerToUpdate.marker.setLabel({
       text: config.icon,
       color: '#FFFFFF',
@@ -312,7 +356,6 @@ function App() {
       fontWeight: 'bold'
     });
 
-    // Update marker data
     const updatedMarkerData = {
       ...markerToUpdate,
       type: nextType,
@@ -320,14 +363,12 @@ function App() {
       timestamp: new Date().toLocaleString()
     };
 
-    // Update markers array
     setMarkers(currentMarkers =>
       currentMarkers.map(m =>
         m.id === markerId ? updatedMarkerData : m
       )
     );
 
-    // Show confirmation message
     setError(`Status updated to ${config.title}`);
     setTimeout(() => setError(''), 3000);
   };
@@ -352,10 +393,7 @@ function App() {
     if (selectedLocation) {
       createMarker(selectedLocation, type, map);
     } else {
-      setError('Please enter your address first');
-      if (searchInputRef.current) {
-        searchInputRef.current.focus();
-      }
+      getCurrentLocation();
     }
   };
 
@@ -367,11 +405,11 @@ function App() {
         </h1>
         {selectedAction ? (
           <p className="text-xl text-gray-700">
-            Please enter your address to mark your location
+            Please confirm your location
           </p>
         ) : (
           <p className="text-xl text-gray-700">
-            Select your status, then enter your address
+            Select your status
           </p>
         )}
       </header>
@@ -381,7 +419,6 @@ function App() {
           {error}
         </div>
       )}
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <button 
           onClick={() => handleButtonClick('needHelp')}
@@ -421,17 +458,28 @@ function App() {
       </div>
 
       <div className="mb-6">
-        <label htmlFor="address-search" className="block text-lg mb-2">
-          Your Location
-        </label>
-        <input
-          id="address-search"
-          ref={searchInputRef}
-          type="text"
-          placeholder="Enter your address"
-          aria-label="Search for your address"
-          className="w-full p-4 text-xl rounded-lg border-2 border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-        />
+        <div className="flex gap-4 items-end">
+          <div className="flex-1">
+            <label htmlFor="address-search" className="block text-lg mb-2">
+              Your Location
+            </label>
+            <input
+              id="address-search"
+              ref={searchInputRef}
+              type="text"
+              placeholder="Enter your address"
+              className="w-full p-4 text-xl rounded-lg border-2 border-gray-300 focus:border-blue-500"
+            />
+          </div>
+          <button
+            onClick={getCurrentLocation}
+            className="px-6 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
+            disabled={isGettingLocation}
+          >
+            <MapPin size={24} />
+            {isGettingLocation ? 'Getting location...' : 'Use my location'}
+          </button>
+        </div>
       </div>
 
       <div className="bg-gray-100 p-4 rounded-lg">
